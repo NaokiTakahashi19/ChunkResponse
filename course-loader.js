@@ -9,6 +9,7 @@
   let activeCourse = "daily";
   let hideTimer = null;
   const preloadNearbyAudio = () => {
+    const wanted = new Set();
     const match = progress.textContent.match(/(\d+)\s*\/\s*(\d+)/);
     if (!match) return;
     const position = Number(match[1]);
@@ -19,6 +20,7 @@
       const chunk = String(Math.ceil(item / examplesPerChunk)).padStart(3, "0");
       const example = String(((item - 1) % examplesPerChunk) + 1).padStart(2, "0");
       const source = `./${folder}/${chunk}-${example}.mp3`;
+      wanted.add(source);
       if (document.querySelector(`link[data-audio-preload="${source}"]`)) continue;
       const link = document.createElement("link");
       link.rel = "preload";
@@ -27,6 +29,9 @@
       link.dataset.audioPreload = source;
       document.head.append(link);
     }
+    document.querySelectorAll("link[data-audio-preload]").forEach((link) => {
+      if (!wanted.has(link.dataset.audioPreload)) link.remove();
+    });
   };
   const sync = () => {
     const text = status.textContent;

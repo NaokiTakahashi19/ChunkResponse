@@ -1,4 +1,4 @@
-const CACHE_NAME = "chunk-response-v5";
+const CACHE_NAME = "chunk-response-v6";
 const ASSETS = ["./", "./index.html", "./tokens.css", "./styles.css", "./practice.css", "./app.js", "./course-loader.js", "./load-status.js", "./settings.js", "./repeat-display.js", "./auto-mode.js", "./audio-controls.js", "./progress.js", "./reveal.js", "./install.js", "./icon.svg", "./chunks_120_examples.csv", "./edtech_it_chunk_examples.md", "./manifest.webmanifest"];
 
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))));
