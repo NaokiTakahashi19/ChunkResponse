@@ -7,11 +7,11 @@
   const cannotButton = document.querySelector("#cannot-button");
   const settings = document.createElement("div");
   settings.className = "auto-settings";
-  settings.innerHTML = '<label>進行方法<select id="progress-mode"><option value="pause">ポーズモード</option><option value="auto">自動連続再生</option></select></label><label>自動移動までの時間<select id="auto-pause"><option value="2">2秒</option><option value="3" selected>3秒</option><option value="5">5秒</option><option value="8">8秒</option></select></label>';
+  settings.innerHTML = '<label>進行モード<select id="progress-mode"><option value="auto">自動モード</option><option value="pause">ポーズモード</option></select></label><label>自動移動までのポーズ<select id="auto-pause"><option value="2">2秒</option><option value="3" selected>3秒</option><option value="5">5秒</option><option value="8">8秒</option></select></label>';
   panel.insertBefore(settings, panel.querySelector("p"));
   const progressMode = document.querySelector("#progress-mode");
   const autoPause = document.querySelector("#auto-pause");
-  progressMode.value = localStorage.getItem("chunk-response-progress-mode") || "pause";
+  progressMode.value = localStorage.getItem("chunk-response-progress-mode") || "auto";
   autoPause.value = localStorage.getItem("chunk-response-auto-pause") || "3";
   progressMode.addEventListener("change", () => localStorage.setItem("chunk-response-progress-mode", progressMode.value));
   autoPause.addEventListener("change", () => localStorage.setItem("chunk-response-auto-pause", autoPause.value));

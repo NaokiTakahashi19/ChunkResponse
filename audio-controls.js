@@ -26,7 +26,7 @@
     update();
   });
   range.addEventListener("input", () => { if (activeAudio) activeAudio.currentTime = Number(range.value); });
-  const syncMode = () => { controls.hidden = !mode.textContent.startsWith("LISTEN"); };
+  const syncMode = () => { controls.hidden = mode.textContent.startsWith("APPLY"); };
   new MutationObserver(syncMode).observe(mode, { childList: true, characterData: true, subtree: true });
   syncMode();
   const NativeAudio = window.Audio;
