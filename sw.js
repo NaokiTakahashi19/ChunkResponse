@@ -1,4 +1,4 @@
-const CACHE_NAME = "chunk-response-v18";
+const CACHE_NAME = "chunk-response-v19";
 const SHELL_ASSETS = ["./", "./index.html", "./tokens.css", "./styles.css", "./practice.css", "./app-core.js", "./install.js", "./icon.svg", "./manifest.webmanifest"];
 const COURSE_DATA = ["/chunks_120_examples.csv", "/edtech_it_chunk_examples.md"];
 
