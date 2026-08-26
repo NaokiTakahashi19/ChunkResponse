@@ -25,6 +25,9 @@ button:disabled { cursor:not-allowed; opacity:.45; transform:none; }
 .card-meta { justify-content:flex-end; }
 .prompt-content { min-width:0; }
 .chunk-label { margin-top:var(--space-lg); }
+.hint-button { width:fit-content; min-height:var(--control-sm); margin-top:var(--space-lg); padding:0 var(--space-sm); border-color:var(--color-rule); background:transparent; font-size:var(--text-xs); font-weight:650; }
+.chunk-label:not([hidden]) + .hint-button { margin-top:var(--space-xs); }
+.hint-button:hover { background:var(--color-surface-strong); }
 .english-text { max-width:34ch; min-width:0; font-weight:500; letter-spacing:var(--tracking-heading); }
 .practice-controls { margin-top:auto; padding-top:var(--space-xl); }
 .cue-text { margin:0 0 var(--space-sm); padding-top:0; line-height:var(--leading-body); }

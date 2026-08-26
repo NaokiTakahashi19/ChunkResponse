@@ -13,6 +13,7 @@
     modeLabel: $("#mode-label"),
     progress: $("#progress"),
     chunk: $("#chunk-label"),
+    hint: $("#hint-button"),
     japanese: $("#japanese-text"),
     english: $("#english-text"),
     cue: $("#cue-text"),
@@ -45,6 +46,7 @@
     timerIds: new Map(),
     playing: false,
     phase: "idle",
+    revealHint: false,
     revealEnglish: false,
     revealJapanese: false,
     ratings: JSON.parse(localStorage.getItem("chunk-response-ratings-v2") || "{}")
@@ -250,6 +252,7 @@
       ?? "0";
     state.index = state.items.length ? Math.min(Math.max(Number(saved) || 0, 0), state.items.length - 1) : 0;
     state.phase = "idle";
+    state.revealHint = false;
     state.revealEnglish = false;
     state.revealJapanese = false;
     updateCourseStatus();
@@ -429,11 +432,16 @@
     const listening = state.mode === "listen";
     const recalling = state.mode === "recall";
     const applying = state.mode === "apply";
+    const canUseHint = loaded && recalling && ["idle", "prompt"].includes(state.phase);
+    const showRecallHint = canUseHint && state.revealHint;
 
     elements.modeLabel.textContent = applying ? "APPLY · PREPARING" : recalling ? "RECALL · SPEAK" : "LISTEN & REPEAT";
     elements.card.classList.toggle("is-placeholder", applying);
     elements.progress.textContent = applying ? "準備中" : missedEmpty ? "対象 0件" : loaded ? `${elements.practiceScope.value === "missed" ? "言えなかった" : "学習位置"} ${state.index + 1} / ${state.items.length}` : "—";
     elements.chunk.textContent = applying ? "応用練習" : missedEmpty ? "言えなかった例文" : loaded ? item.chunk : "教材を選択";
+    elements.chunk.hidden = loaded && recalling && !showRecallHint;
+    elements.hint.hidden = !canUseHint;
+    elements.hint.textContent = state.revealHint ? "ヒントを隠す" : "ヒントを見る";
     elements.japanese.textContent = applying ? "応用問題の生成機能は準備中です。" : missedEmpty ? "現在、復習対象の例文はありません。" : loaded ? (item.japanese || item.chunkJa) : "上の教材を選ぶと、例文データを読み込みます。";
     elements.english.textContent = applying ? "" : loaded ? item.english : "";
     const showRecallJapanese = recalling && state.phase === "prompt" && elements.japanesePromptDisplay.value === "show";
@@ -454,7 +462,7 @@
     elements.audioControls.hidden = !showAudioControls;
     elements.play.innerHTML = `<span aria-hidden="true">${state.playing ? "■" : "▶"}</span> ${state.playing ? "停止する" : recalling ? "問題を始める" : "再生する"}`;
     elements.cue.hidden = applying;
-    elements.cue.textContent = missedEmpty ? "設定の出題範囲を「すべて」に戻すと練習できます。" : !loaded ? "教材を選択してください。" : recalling ? "日本語を聞いて話し、正解音声の後に自己評価します。" : "再生して、聞こえた通りに続けて話してください。";
+    elements.cue.textContent = missedEmpty ? "設定の出題範囲を「すべて」に戻すと練習できます。" : !loaded ? "教材を選択してください。" : recalling ? "日本語を聞いて、英語を話し、正解音声を聞いて自己評価" : "再生して、聞こえた通りに続けて話してください。";
     elements.repeat.closest("label").hidden = !listening;
     elements.repeatPauseSetting.hidden = !listening;
     elements.englishDisplaySetting.hidden = !listening;
@@ -474,6 +482,7 @@
     state.index = 0;
     state.revealEnglish = false;
     state.revealJapanese = false;
+    state.revealHint = false;
     state.phase = "idle";
     elements.status.textContent = "教材を読み込んでいます…";
     loadingOverlay.hidden = false;
@@ -518,6 +527,7 @@
     }
     state.revealEnglish = false;
     state.revealJapanese = false;
+    state.revealHint = false;
     state.phase = "idle";
     localStorage.setItem(practiceIndexKey(), String(state.index));
     if (elements.practiceScope.value === "all") localStorage.setItem(`chunk-response-index-${state.course}`, String(state.index));
@@ -672,6 +682,7 @@
     stopSession();
     state.mode = button.dataset.mode;
     state.phase = "idle";
+    state.revealHint = false;
     state.revealEnglish = false;
     state.revealJapanese = false;
     elements.modeButtons.forEach((tab) => {
@@ -700,6 +711,10 @@
   });
   elements.showEnglish.addEventListener("click", () => {
     state.revealEnglish = !state.revealEnglish;
+    render();
+  });
+  elements.hint.addEventListener("click", () => {
+    state.revealHint = !state.revealHint;
     render();
   });
   elements.can.addEventListener("click", () => rateAnswer("can"));
