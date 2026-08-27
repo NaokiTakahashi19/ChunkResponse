@@ -6,8 +6,15 @@
     status: $("#asset-status"),
     courseButtons: [...document.querySelectorAll(".course-button")],
     modeButtons: [...document.querySelectorAll(".mode-tab")],
+    examplesButton: $("#examples-button"),
     settingsButton: $("#settings-button"),
     settingsPanel: $("#settings-panel"),
+    practiceView: $("#practice-view"),
+    examplesView: $("#examples-view"),
+    examplesSummary: $("#examples-summary"),
+    examplesSearch: $("#example-search"),
+    examplesEmpty: $("#examples-empty"),
+    examplesList: $("#examples-list"),
     repeat: $("#repeat-count"),
     pauseMultiplier: $("#pause-multiplier"),
     modeLabel: $("#mode-label"),
@@ -31,6 +38,7 @@
   const state = {
     course: null,
     mode: "listen",
+    view: "practice",
     allItems: [],
     items: [],
     index: 0,
@@ -55,6 +63,7 @@
   const settingsMarkup = document.createElement("div");
   settingsMarkup.className = "auto-settings";
   settingsMarkup.innerHTML = `
+    <label>学習範囲<select id="learning-range"><option value="all">全120チャンク</option><option value="1-20">001–020</option><option value="21-40">021–040</option><option value="41-60">041–060</option><option value="61-80">061–080</option><option value="81-100">081–100</option><option value="101-120">101–120</option></select></label>
     <label>出題範囲<select id="practice-scope"><option value="all">すべて</option><option value="missed">言えなかったのみ</option></select></label>
     <label>進行モード<select id="progress-mode"><option value="auto">自動モード</option><option value="pause">ポーズモード</option></select></label>
     <label>自動移動までのポーズ<select id="auto-pause"><option value="2">2秒</option><option value="3">3秒</option><option value="5">5秒</option><option value="8">8秒</option></select></label>
@@ -63,6 +72,7 @@
     <label id="recall-pause-setting">日本語→英語の追加ポーズ<select id="recall-extra-pause"><option value="0">+0秒</option><option value="1">+1秒</option><option value="2">+2秒</option><option value="3">+3秒</option><option value="4">+4秒</option><option value="5">+5秒</option></select></label>
     <label>配色<select id="theme-select"><option value="cobalt">青</option><option value="forest">緑</option><option value="rose">赤</option></select></label>`;
   elements.settingsPanel.insertBefore(settingsMarkup, elements.settingsPanel.querySelector("p"));
+  elements.learningRange = $("#learning-range");
   elements.practiceScope = $("#practice-scope");
   elements.progressMode = $("#progress-mode");
   elements.autoPause = $("#auto-pause");
@@ -97,6 +107,7 @@
     return localStorage.getItem(`chunk-response-${key}`) || fallback;
   }
 
+  elements.learningRange.value = setting("learning-range", "all");
   elements.practiceScope.value = setting("practice-scope", "all");
   elements.progressMode.value = setting("progress-mode", "auto");
   elements.autoPause.value = setting("auto-pause", "3");
@@ -112,6 +123,7 @@
   }
 
   function saveSettings() {
+    localStorage.setItem("chunk-response-learning-range", elements.learningRange.value);
     localStorage.setItem("chunk-response-practice-scope", elements.practiceScope.value);
     localStorage.setItem("chunk-response-progress-mode", elements.progressMode.value);
     localStorage.setItem("chunk-response-auto-pause", elements.autoPause.value);
@@ -129,6 +141,14 @@
     saveSettings();
     if (state.course && state.allItems.length) applyPracticeScope();
     else render();
+  });
+  elements.learningRange.addEventListener("change", () => {
+    saveSettings();
+    if (state.course && state.allItems.length) applyPracticeScope();
+    else {
+      render();
+      renderExamples();
+    }
   });
   elements.japanesePromptDisplay.addEventListener("change", render);
   applyTheme();
@@ -183,6 +203,7 @@
       id: row.id,
       chunk: row["チャンク"],
       chunkJa: row["チャンク日本語訳"],
+      category: row["区分"],
       english: row["英文"],
       japanese: row["例文日本語訳"],
       audio: `./${row["音声ファイル"]}`
@@ -211,6 +232,7 @@
           id: `${pad(chunkNumber)}-${String(example).padStart(2, "0")}`,
           chunk,
           chunkJa,
+          category: sentence[1] === "E" ? "EduTech" : "IT",
           english: stripMarkdown(sentence[2]),
           japanese: "",
           audio: `./edtech-it-audio/${pad(chunkNumber)}-${String(example).padStart(2, "0")}.mp3`
@@ -228,20 +250,45 @@
     return state.course === "daily" ? "日常／ビジネス" : "EduTech／IT";
   }
 
+  function selectedRangeBounds() {
+    if (elements.learningRange.value === "all") return [1, 120];
+    return elements.learningRange.value.split("-").map(Number);
+  }
+
+  function rangeDescription() {
+    if (elements.learningRange.value === "all") return "全120チャンク";
+    const [start, end] = selectedRangeBounds();
+    return `${pad(start)}–${pad(end)}`;
+  }
+
+  function chunkNumber(item) {
+    return Number(item.id.split("-")[0]);
+  }
+
+  function rangeItems(items = state.allItems) {
+    const [start, end] = selectedRangeBounds();
+    return items.filter((item) => {
+      const number = chunkNumber(item);
+      return number >= start && number <= end;
+    });
+  }
+
   function scopedItems() {
-    if (elements.practiceScope.value !== "missed") return [...state.allItems];
-    return state.allItems.filter((item) => state.ratings[`${state.course}:${item.id}`] === "cannot");
+    const items = rangeItems();
+    if (elements.practiceScope.value !== "missed") return items;
+    return items.filter((item) => state.ratings[`${state.course}:${item.id}`] === "cannot");
   }
 
   function updateCourseStatus() {
     if (!state.course || !state.allItems.length) return;
+    const available = rangeItems().length;
     elements.status.textContent = elements.practiceScope.value === "missed"
-      ? `${courseLabel()}：言えなかった ${state.items.length} / ${state.allItems.length}`
-      : `${courseLabel()}：${state.allItems.length}例文`;
+      ? `${courseLabel()}：${rangeDescription()}・言えなかった ${state.items.length} / ${available}`
+      : `${courseLabel()}：${rangeDescription()}・${available}例文`;
   }
 
   function practiceIndexKey() {
-    return `chunk-response-index-${state.course}-${elements.practiceScope.value}`;
+    return `chunk-response-index-${state.course}-${elements.practiceScope.value}-${elements.learningRange.value}`;
   }
 
   function applyPracticeScope() {
@@ -257,6 +304,7 @@
     state.revealJapanese = false;
     updateCourseStatus();
     render();
+    renderExamples();
     prewarmNearbyAudio();
   }
 
@@ -425,6 +473,125 @@
     else setTimeout(warm, 300);
   }
 
+  function renderExamples() {
+    if (state.view !== "examples") {
+      elements.examplesList.replaceChildren();
+      return;
+    }
+
+    const query = elements.examplesSearch.value.trim().toLocaleLowerCase("ja");
+    elements.examplesList.replaceChildren();
+    elements.examplesSearch.disabled = !state.allItems.length;
+
+    if (!state.course || !state.allItems.length) {
+      elements.examplesSummary.textContent = "教材を選択してください。";
+      elements.examplesEmpty.textContent = "教材を選択してください。";
+      elements.examplesEmpty.hidden = false;
+      return;
+    }
+
+    const groupsByNumber = new Map();
+    state.allItems.forEach((item) => {
+      const number = chunkNumber(item);
+      if (!groupsByNumber.has(number)) {
+        groupsByNumber.set(number, {
+          number,
+          chunk: item.chunk,
+          chunkJa: item.chunkJa,
+          items: []
+        });
+      }
+      groupsByNumber.get(number).items.push(item);
+    });
+
+    const groups = [...groupsByNumber.values()].filter((group) => {
+      if (!query) return true;
+      const searchable = [
+        group.chunk,
+        group.chunkJa,
+        ...group.items.flatMap((item) => [item.category, item.english, item.japanese])
+      ].join(" ").toLocaleLowerCase("ja");
+      return searchable.includes(query);
+    });
+
+    const exampleCount = groups.reduce((total, group) => total + group.items.length, 0);
+    elements.examplesSummary.textContent = `${groups.length}チャンク・${exampleCount}例文　学習範囲：${rangeDescription()}`;
+    elements.examplesEmpty.textContent = query ? `「${elements.examplesSearch.value.trim()}」に一致する例文はありません。` : "例文がありません。";
+    elements.examplesEmpty.hidden = groups.length > 0;
+
+    const fragment = document.createDocumentFragment();
+    groups.forEach((group) => {
+      const details = document.createElement("details");
+      details.className = "chunk-group";
+      details.open = Boolean(query);
+
+      const summary = document.createElement("summary");
+      const number = document.createElement("span");
+      number.className = "chunk-number";
+      number.textContent = pad(group.number);
+
+      const copy = document.createElement("span");
+      copy.className = "chunk-copy";
+      const title = document.createElement("strong");
+      title.textContent = group.chunk;
+      copy.append(title);
+      if (group.chunkJa) {
+        const translation = document.createElement("span");
+        translation.textContent = group.chunkJa;
+        copy.append(translation);
+      }
+
+      const count = document.createElement("span");
+      count.className = "chunk-count";
+      count.textContent = `${group.items.length}文`;
+      summary.append(number, copy, count);
+
+      const list = document.createElement("ol");
+      list.className = "example-items";
+      group.items.forEach((item) => {
+        const row = document.createElement("li");
+        row.className = "example-row";
+        const category = document.createElement("span");
+        category.className = "example-category";
+        category.textContent = item.category;
+        const text = document.createElement("div");
+        const english = document.createElement("p");
+        english.className = "example-english";
+        english.textContent = item.english;
+        text.append(english);
+        if (item.japanese) {
+          const japanese = document.createElement("p");
+          japanese.className = "example-japanese";
+          japanese.textContent = item.japanese;
+          text.append(japanese);
+        }
+        row.append(category, text);
+        list.append(row);
+      });
+
+      details.append(summary, list);
+      fragment.append(details);
+    });
+    elements.examplesList.replaceChildren(fragment);
+  }
+
+  function setAppView(view) {
+    stopSession();
+    state.view = view;
+    const showingExamples = view === "examples";
+    elements.practiceView.hidden = showingExamples;
+    elements.examplesView.hidden = !showingExamples;
+    elements.examplesButton.textContent = showingExamples ? "練習に戻る" : "例文一覧";
+    elements.examplesButton.setAttribute("aria-pressed", String(showingExamples));
+    elements.settingsPanel.hidden = true;
+    elements.settingsButton.setAttribute("aria-expanded", "false");
+    if (showingExamples) renderExamples();
+    else {
+      elements.examplesList.replaceChildren();
+      render();
+    }
+  }
+
   function render() {
     const item = currentItem();
     const loaded = Boolean(item);
@@ -493,6 +660,7 @@
       button.setAttribute("aria-pressed", String(selected));
     });
     render();
+    renderExamples();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
       const items = course === "daily" ? await loadDaily(controller.signal) : await loadEdtech(controller.signal);
@@ -507,6 +675,7 @@
         button.setAttribute("aria-pressed", "false");
       });
       render();
+      renderExamples();
     } finally {
       clearTimeout(timeoutId);
       if (state.loadController === controller) state.loadController = null;
@@ -530,7 +699,9 @@
     state.revealHint = false;
     state.phase = "idle";
     localStorage.setItem(practiceIndexKey(), String(state.index));
-    if (elements.practiceScope.value === "all") localStorage.setItem(`chunk-response-index-${state.course}`, String(state.index));
+    if (elements.practiceScope.value === "all" && elements.learningRange.value === "all") {
+      localStorage.setItem(`chunk-response-index-${state.course}`, String(state.index));
+    }
     updateCourseStatus();
     render();
     prewarmNearbyAudio();
@@ -678,6 +849,8 @@
   }
 
   elements.courseButtons.forEach((button) => button.addEventListener("click", () => selectCourse(button.dataset.course)));
+  elements.examplesButton.addEventListener("click", () => setAppView(state.view === "practice" ? "examples" : "practice"));
+  elements.examplesSearch.addEventListener("input", renderExamples);
   elements.modeButtons.forEach((button) => button.addEventListener("click", () => {
     stopSession();
     state.mode = button.dataset.mode;
@@ -753,6 +926,7 @@
   elements.card.addEventListener("pointercancel", () => { swipeStart = null; });
 
   render();
+  renderExamples();
   if (location.protocol === "file:") elements.status.textContent = "公開URLで教材を選択してください";
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
