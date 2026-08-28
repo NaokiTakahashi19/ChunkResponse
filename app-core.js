@@ -10,7 +10,12 @@
     settingsButton: $("#settings-button"),
     settingsPanel: $("#settings-panel"),
     practiceView: $("#practice-view"),
-    learningRangeSetting: $("#learning-range-setting"),
+    learningPositionSetting: $("#learning-position-setting"),
+    learningPosition: $("#learning-position"),
+    learningPositionOutput: $("#learning-position-output"),
+    learningPositionPreview: $("#learning-position-preview"),
+    learningPositionNumber: $("#learning-position-number"),
+    learningPositionChunk: $("#learning-position-chunk"),
     examplesView: $("#examples-view"),
     examplesSummary: $("#examples-summary"),
     examplesSearch: $("#example-search"),
@@ -42,6 +47,7 @@
     view: "practice",
     allItems: [],
     items: [],
+    highlightCorpus: [],
     index: 0,
     activeAudio: null,
     activeAudioFinish: null,
@@ -72,7 +78,6 @@
     <label id="recall-pause-setting">日本語→英語の追加ポーズ<select id="recall-extra-pause"><option value="0">+0秒</option><option value="1">+1秒</option><option value="2">+2秒</option><option value="3">+3秒</option><option value="4">+4秒</option><option value="5">+5秒</option></select></label>
     <label>配色<select id="theme-select"><option value="cobalt">青</option><option value="forest">緑</option><option value="rose">赤</option></select></label>`;
   elements.settingsPanel.insertBefore(settingsMarkup, elements.settingsPanel.querySelector("p"));
-  elements.learningRange = $("#learning-range");
   elements.practiceScope = $("#practice-scope");
   elements.progressMode = $("#progress-mode");
   elements.autoPause = $("#auto-pause");
@@ -107,7 +112,6 @@
     return localStorage.getItem(`chunk-response-${key}`) || fallback;
   }
 
-  elements.learningRange.value = setting("learning-range", "all");
   elements.practiceScope.value = setting("practice-scope", "all");
   elements.progressMode.value = setting("progress-mode", "auto");
   elements.autoPause.value = setting("auto-pause", "3");
@@ -123,7 +127,6 @@
   }
 
   function saveSettings() {
-    localStorage.setItem("chunk-response-learning-range", elements.learningRange.value);
     localStorage.setItem("chunk-response-practice-scope", elements.practiceScope.value);
     localStorage.setItem("chunk-response-progress-mode", elements.progressMode.value);
     localStorage.setItem("chunk-response-auto-pause", elements.autoPause.value);
@@ -141,14 +144,6 @@
     saveSettings();
     if (state.course && state.allItems.length) applyPracticeScope();
     else render();
-  });
-  elements.learningRange.addEventListener("change", () => {
-    saveSettings();
-    if (state.course && state.allItems.length) applyPracticeScope();
-    else {
-      render();
-      renderExamples();
-    }
   });
   elements.japanesePromptDisplay.addEventListener("change", render);
   applyTheme();
@@ -190,6 +185,7 @@
 
   const pad = (number) => String(number).padStart(3, "0");
   const stripMarkdown = (text) => text.replace(/\*\*/g, "").trim();
+  const markedPhrases = (text) => [...text.matchAll(/\*\*(.+?)\*\*/g)].map((match) => match[1].trim());
 
   async function fetchText(url, signal) {
     const response = await fetch(url, { signal });
@@ -206,7 +202,8 @@
       category: row["区分"],
       english: row["英文"],
       japanese: row["例文日本語訳"],
-      audio: `./${row["音声ファイル"]}`
+      audio: `./${row["音声ファイル"]}`,
+      highlights: []
     }));
   }
 
@@ -235,7 +232,8 @@
           category: sentence[1] === "E" ? "EduTech" : "IT",
           english: stripMarkdown(sentence[2]),
           japanese: "",
-          audio: `./edtech-it-audio/${pad(chunkNumber)}-${String(example).padStart(2, "0")}.mp3`
+          audio: `./edtech-it-audio/${pad(chunkNumber)}-${String(example).padStart(2, "0")}.mp3`,
+          highlights: markedPhrases(sentence[2])
         });
       }
     });
@@ -250,78 +248,119 @@
     return state.course === "daily" ? "日常／ビジネス" : "EduTech／IT";
   }
 
-  function selectedRangeBounds() {
-    if (elements.learningRange.value === "all") return [1, 120];
-    return elements.learningRange.value.split("-").map(Number);
-  }
-
-  function rangeDescription() {
-    if (elements.learningRange.value === "all") return "全120チャンク";
-    const [start, end] = selectedRangeBounds();
-    return `${pad(start)}–${pad(end)}`;
-  }
-
   function chunkNumber(item) {
     return Number(item.id.split("-")[0]);
   }
 
-  function chunkLiteral(chunk) {
+  function itemAtChunk(number) {
+    return state.allItems.find((item) => chunkNumber(item) === number);
+  }
+
+  function updateLearningPosition(number = chunkNumber(currentItem() || { id: "001-01" })) {
+    const safeNumber = Math.min(Math.max(Number(number) || 1, 1), 120);
+    const item = itemAtChunk(safeNumber);
+    const progress = ((safeNumber - 1) / 119) * 100;
+    elements.learningPosition.value = String(safeNumber);
+    elements.learningPosition.disabled = !state.allItems.length || state.mode === "apply";
+    elements.learningPositionSetting.style.setProperty("--learning-progress", `${progress}%`);
+    elements.learningPositionOutput.value = state.allItems.length ? `${pad(safeNumber)} / 120` : "— / 120";
+    elements.learningPositionOutput.textContent = elements.learningPositionOutput.value;
+    elements.learningPositionNumber.value = pad(safeNumber);
+    elements.learningPositionNumber.textContent = pad(safeNumber);
+    elements.learningPositionChunk.value = item?.chunk || "教材を選択";
+    elements.learningPositionChunk.textContent = elements.learningPositionChunk.value;
+    elements.learningPosition.setAttribute("aria-valuetext", item ? `${pad(safeNumber)} ${item.chunk}` : "教材を選択");
+  }
+
+  function showLearningPositionPreview(show) {
+    elements.learningPositionPreview.hidden = !show || elements.learningPosition.disabled;
+    elements.learningPositionSetting.classList.toggle("is-scrubbing", show && !elements.learningPosition.disabled);
+  }
+
+  function jumpToChunk(number) {
+    if (!state.items.length) return;
+    stopSession();
+    const exact = state.items.findIndex((item) => chunkNumber(item) === number);
+    const next = state.items.findIndex((item) => chunkNumber(item) > number);
+    state.index = exact >= 0 ? exact : next >= 0 ? next : state.items.length - 1;
+    state.phase = "idle";
+    state.revealHint = false;
+    state.revealEnglish = false;
+    state.revealJapanese = false;
+    localStorage.setItem(practiceIndexKey(), String(state.index));
+    if (elements.practiceScope.value === "all") localStorage.setItem(`chunk-response-index-${state.course}`, String(state.index));
+    updateCourseStatus();
+    render();
+    prewarmNearbyAudio();
+  }
+
+  function chunkLiterals(chunk) {
     return chunk
-      .split("…")[0]
-      .trim()
-      .replace(/[.!?,;:]+$/u, "")
-      .trim();
+      .split(/…|\.\.\./u)
+      .map((part) => part.trim().replace(/^[.!?,;:]+|[.!?,;:]+$/gu, "").trim())
+      .filter((part) => part.length >= 4 && part.toLocaleLowerCase("en") !== "ing");
   }
 
   function renderHighlightedEnglish(element, item) {
     const sentence = item?.english || "";
-    const literal = chunkLiteral(item?.chunk || "");
-    const normalizedSentence = sentence.toLocaleLowerCase("en").replaceAll("’", "'");
-    const normalizedLiteral = literal.toLocaleLowerCase("en").replaceAll("’", "'");
-    const fallbackLiteral = normalizedLiteral.replace(/^(?:that|it|i)(?:'s|'ll)?\s+/u, "");
-    const candidates = [normalizedLiteral];
-    if (fallbackLiteral !== normalizedLiteral) candidates.push(fallbackLiteral);
-    const matchedLiteral = candidates.find((candidate) => candidate && normalizedSentence.includes(candidate)) || "";
-    const start = matchedLiteral ? normalizedSentence.indexOf(matchedLiteral) : -1;
-    if (start < 0) {
+    const normalize = (text) => text.toLocaleLowerCase("en").replaceAll("’", "'");
+    const normalizedSentence = normalize(sentence);
+    const primaryPhrases = chunkLiterals(item?.chunk || "");
+    const primaryFallbacks = primaryPhrases
+      .filter((phrase) => !normalizedSentence.includes(normalize(phrase)))
+      .map((phrase) => phrase.replace(/^(?:that|it|i)(?:’s|’ll|'s|'ll)?\s+/iu, ""))
+      .filter((phrase) => phrase.length >= 4);
+    const supplementalPhrases = ["actually", "for now", "I think", "if possible"];
+    const phrases = [...new Set([...(item?.highlights || []), ...primaryFallbacks, ...state.highlightCorpus, ...supplementalPhrases])]
+      .map((phrase) => ({ phrase, normalized: normalize(phrase) }))
+      .filter(({ normalized }) => normalized.length >= 4)
+      .sort((left, right) => right.normalized.length - left.normalized.length);
+    const ranges = [];
+    phrases.forEach(({ normalized }) => {
+      let from = 0;
+      while (from < normalizedSentence.length) {
+        const start = normalizedSentence.indexOf(normalized, from);
+        if (start < 0) break;
+        const end = start + normalized.length;
+        if (!ranges.some((range) => start < range.end && end > range.start)) ranges.push({ start, end });
+        from = end;
+      }
+    });
+    ranges.sort((left, right) => left.start - right.start);
+    if (!ranges.length) {
       element.textContent = sentence;
       return;
     }
-
-    const highlight = document.createElement("mark");
-    highlight.className = "chunk-highlight";
-    highlight.textContent = sentence.slice(start, start + matchedLiteral.length);
-    element.replaceChildren(
-      document.createTextNode(sentence.slice(0, start)),
-      highlight,
-      document.createTextNode(sentence.slice(start + matchedLiteral.length))
-    );
-  }
-
-  function rangeItems(items = state.allItems) {
-    const [start, end] = selectedRangeBounds();
-    return items.filter((item) => {
-      const number = chunkNumber(item);
-      return number >= start && number <= end;
+    const content = document.createDocumentFragment();
+    let cursor = 0;
+    ranges.forEach(({ start, end }) => {
+      if (start > cursor) content.append(document.createTextNode(sentence.slice(cursor, start)));
+      const highlight = document.createElement("mark");
+      highlight.className = "chunk-highlight";
+      highlight.textContent = sentence.slice(start, end);
+      content.append(highlight);
+      cursor = end;
     });
+    if (cursor < sentence.length) content.append(document.createTextNode(sentence.slice(cursor)));
+    element.replaceChildren(content);
   }
 
   function scopedItems() {
-    const items = rangeItems();
+    const items = state.allItems;
     if (elements.practiceScope.value !== "missed") return items;
     return items.filter((item) => state.ratings[`${state.course}:${item.id}`] === "cannot");
   }
 
   function updateCourseStatus() {
     if (!state.course || !state.allItems.length) return;
-    const available = rangeItems().length;
+    const available = state.allItems.length;
     elements.status.textContent = elements.practiceScope.value === "missed"
-      ? `${courseLabel()}：${rangeDescription()}・言えなかった ${state.items.length} / ${available}`
-      : `${courseLabel()}：${rangeDescription()}・${available}例文`;
+      ? `${courseLabel()}：言えなかった ${state.items.length} / ${available}`
+      : `${courseLabel()}：全120チャンク・${available}例文`;
   }
 
   function practiceIndexKey() {
-    return `chunk-response-index-${state.course}-${elements.practiceScope.value}-${elements.learningRange.value}`;
+    return `chunk-response-index-${state.course}-${elements.practiceScope.value}`;
   }
 
   function applyPracticeScope() {
@@ -548,7 +587,7 @@
     });
 
     const exampleCount = groups.reduce((total, group) => total + group.items.length, 0);
-    elements.examplesSummary.textContent = `${groups.length}チャンク・${exampleCount}例文　学習範囲：${rangeDescription()}`;
+    elements.examplesSummary.textContent = `${groups.length}チャンク・${exampleCount}例文`;
     elements.examplesEmpty.textContent = query ? `「${elements.examplesSearch.value.trim()}」に一致する例文はありません。` : "例文がありません。";
     elements.examplesEmpty.hidden = groups.length > 0;
 
@@ -664,7 +703,8 @@
     elements.cue.hidden = applying;
     elements.cue.textContent = missedEmpty ? "設定の出題範囲を「すべて」に戻すと練習できます。" : !loaded ? "教材を選択してください。" : recalling ? "日本語を聞いて、英語を話し、正解音声を聞いて自己評価" : "再生して、聞こえた通りに続けて話してください。";
     elements.repeat.closest("label").hidden = !listening;
-    elements.learningRangeSetting.hidden = applying;
+    elements.learningPositionSetting.hidden = applying;
+    updateLearningPosition(loaded ? chunkNumber(item) : 1);
     elements.repeatPauseSetting.hidden = !listening;
     elements.englishDisplaySetting.hidden = !listening;
     elements.japanesePromptSetting.hidden = listening;
@@ -680,6 +720,7 @@
     state.course = course;
     state.allItems = [];
     state.items = [];
+    state.highlightCorpus = [];
     state.index = 0;
     state.revealEnglish = false;
     state.revealJapanese = false;
@@ -700,6 +741,7 @@
       const items = course === "daily" ? await loadDaily(controller.signal) : await loadEdtech(controller.signal);
       if (!items.length) throw new Error("教材に例文がありません");
       state.allItems = items;
+      state.highlightCorpus = [...new Set(items.flatMap((item) => chunkLiterals(item.chunk)))];
       applyPracticeScope();
     } catch (error) {
       if (error.name !== "AbortError") console.error(error);
@@ -735,9 +777,7 @@
     state.revealHint = false;
     state.phase = "idle";
     localStorage.setItem(practiceIndexKey(), String(state.index));
-    if (elements.practiceScope.value === "all" && elements.learningRange.value === "all") {
-      localStorage.setItem(`chunk-response-index-${state.course}`, String(state.index));
-    }
+    if (elements.practiceScope.value === "all") localStorage.setItem(`chunk-response-index-${state.course}`, String(state.index));
     updateCourseStatus();
     render();
     prewarmNearbyAudio();
@@ -893,6 +933,16 @@
   }
 
   elements.courseButtons.forEach((button) => button.addEventListener("click", () => selectCourse(button.dataset.course)));
+  elements.learningPosition.addEventListener("pointerdown", () => showLearningPositionPreview(true));
+  elements.learningPosition.addEventListener("focus", () => showLearningPositionPreview(true));
+  elements.learningPosition.addEventListener("input", () => {
+    updateLearningPosition(Number(elements.learningPosition.value));
+    showLearningPositionPreview(true);
+  });
+  elements.learningPosition.addEventListener("change", () => jumpToChunk(Number(elements.learningPosition.value)));
+  elements.learningPosition.addEventListener("blur", () => showLearningPositionPreview(false));
+  window.addEventListener("pointerup", () => showLearningPositionPreview(false));
+  window.addEventListener("pointercancel", () => showLearningPositionPreview(false));
   elements.examplesButton.addEventListener("click", () => setAppView(state.view === "practice" ? "examples" : "practice"));
   elements.examplesSearch.addEventListener("input", renderExamples);
   elements.modeButtons.forEach((button) => button.addEventListener("click", () => {
@@ -959,9 +1009,23 @@
       updateAudioControls();
     }
   });
+  function isInteractiveTarget(target) {
+    return target instanceof Element && Boolean(target.closest("button, input, select, a, summary"));
+  }
+
+  function handleSwipe(deltaX) {
+    if (!currentItem() || !["listen", "recall"].includes(state.mode)) return;
+    if (state.phase === "rating") {
+      rateAnswer(deltaX > 0 ? "can" : "cannot");
+    } else if (state.phase === "idle" && !state.playing) {
+      if (deltaX < 0) moveNext();
+      else movePrevious();
+    }
+  }
+
   let swipeStart = null;
   elements.card.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("button, input, select, a, summary")) {
+    if (isInteractiveTarget(event.target)) {
       swipeStart = null;
       return;
     }
@@ -974,19 +1038,33 @@
     const deltaX = event.clientX - start.x;
     const deltaY = event.clientY - start.y;
     if (Math.abs(deltaX) < 72 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) return;
-    if (state.phase === "rating") {
-      rateAnswer(deltaX > 0 ? "can" : "cannot");
-    } else if (state.phase === "idle" && !state.playing) {
-      if (deltaX < 0) moveNext();
-      else movePrevious();
-    }
+    handleSwipe(deltaX);
   });
   elements.card.addEventListener("pointercancel", () => { swipeStart = null; });
+
+  let wheelDeltaX = 0;
+  let wheelLocked = false;
+  let wheelResetTimer = null;
+  elements.card.addEventListener("wheel", (event) => {
+    if (isInteractiveTarget(event.target) || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+    if (!currentItem() || !["listen", "recall"].includes(state.mode)) return;
+    event.preventDefault();
+    wheelDeltaX += event.deltaX;
+    clearTimeout(wheelResetTimer);
+    wheelResetTimer = setTimeout(() => {
+      wheelDeltaX = 0;
+      wheelLocked = false;
+    }, 360);
+    if (wheelLocked || Math.abs(wheelDeltaX) < 72) return;
+    wheelLocked = true;
+    handleSwipe(-wheelDeltaX);
+  }, { passive: false });
 
   render();
   renderExamples();
   if (location.protocol === "file:") elements.status.textContent = "公開URLで教材を選択してください";
-  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  const localDevelopment = ["localhost", "127.0.0.1"].includes(location.hostname);
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http") && !localDevelopment) {
     window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
   }
 })();
