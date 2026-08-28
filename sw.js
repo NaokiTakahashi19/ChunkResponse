@@ -1,5 +1,5 @@
-const CACHE_NAME = "chunk-response-v23";
-const SHELL_ASSETS = ["./", "./index.html", "./tokens.css?v=23", "./styles.css?v=23", "./practice.css?v=23", "./app-core.js?v=23", "./install.js?v=23", "./icon.svg", "./manifest.webmanifest"];
+const CACHE_NAME = "chunk-response-v25";
+const SHELL_ASSETS = ["./", "./index.html", "./tokens.css?v=25", "./styles.css?v=25", "./practice.css?v=25", "./app-core.js?v=25", "./install.js?v=25", "./icon.svg", "./manifest.webmanifest"];
 const COURSE_DATA = ["/chunks_120_examples.csv", "/edtech_it_chunk_examples.md"];
 
 self.addEventListener("install", (event) => event.waitUntil(

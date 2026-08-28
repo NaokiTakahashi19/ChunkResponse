@@ -10,6 +10,7 @@
     settingsButton: $("#settings-button"),
     settingsPanel: $("#settings-panel"),
     practiceView: $("#practice-view"),
+    learningRangeSetting: $("#learning-range-setting"),
     examplesView: $("#examples-view"),
     examplesSummary: $("#examples-summary"),
     examplesSearch: $("#example-search"),
@@ -63,7 +64,6 @@
   const settingsMarkup = document.createElement("div");
   settingsMarkup.className = "auto-settings";
   settingsMarkup.innerHTML = `
-    <label>学習範囲<select id="learning-range"><option value="all">全120チャンク</option><option value="1-20">001–020</option><option value="21-40">021–040</option><option value="41-60">041–060</option><option value="61-80">061–080</option><option value="81-100">081–100</option><option value="101-120">101–120</option></select></label>
     <label>出題範囲<select id="practice-scope"><option value="all">すべて</option><option value="missed">言えなかったのみ</option></select></label>
     <label>進行モード<select id="progress-mode"><option value="auto">自動モード</option><option value="pause">ポーズモード</option></select></label>
     <label>自動移動までのポーズ<select id="auto-pause"><option value="2">2秒</option><option value="3">3秒</option><option value="5">5秒</option><option value="8">8秒</option></select></label>
@@ -263,6 +263,39 @@
 
   function chunkNumber(item) {
     return Number(item.id.split("-")[0]);
+  }
+
+  function chunkLiteral(chunk) {
+    return chunk
+      .split("…")[0]
+      .trim()
+      .replace(/[.!?,;:]+$/u, "")
+      .trim();
+  }
+
+  function renderHighlightedEnglish(element, item) {
+    const sentence = item?.english || "";
+    const literal = chunkLiteral(item?.chunk || "");
+    const normalizedSentence = sentence.toLocaleLowerCase("en").replaceAll("’", "'");
+    const normalizedLiteral = literal.toLocaleLowerCase("en").replaceAll("’", "'");
+    const fallbackLiteral = normalizedLiteral.replace(/^(?:that|it|i)(?:'s|'ll)?\s+/u, "");
+    const candidates = [normalizedLiteral];
+    if (fallbackLiteral !== normalizedLiteral) candidates.push(fallbackLiteral);
+    const matchedLiteral = candidates.find((candidate) => candidate && normalizedSentence.includes(candidate)) || "";
+    const start = matchedLiteral ? normalizedSentence.indexOf(matchedLiteral) : -1;
+    if (start < 0) {
+      element.textContent = sentence;
+      return;
+    }
+
+    const highlight = document.createElement("mark");
+    highlight.className = "chunk-highlight";
+    highlight.textContent = sentence.slice(start, start + matchedLiteral.length);
+    element.replaceChildren(
+      document.createTextNode(sentence.slice(0, start)),
+      highlight,
+      document.createTextNode(sentence.slice(start + matchedLiteral.length))
+    );
   }
 
   function rangeItems(items = state.allItems) {
@@ -557,7 +590,7 @@
         const text = document.createElement("div");
         const english = document.createElement("p");
         english.className = "example-english";
-        english.textContent = item.english;
+        renderHighlightedEnglish(english, item);
         text.append(english);
         if (item.japanese) {
           const japanese = document.createElement("p");
@@ -610,7 +643,7 @@
     elements.hint.hidden = !canUseHint;
     elements.hint.textContent = state.revealHint ? "ヒントを隠す" : "ヒントを見る";
     elements.japanese.textContent = applying ? "応用問題の生成機能は準備中です。" : missedEmpty ? "現在、復習対象の例文はありません。" : loaded ? (item.japanese || item.chunkJa) : "上の教材を選ぶと、例文データを読み込みます。";
-    elements.english.textContent = applying ? "" : loaded ? item.english : "";
+    renderHighlightedEnglish(elements.english, applying || !loaded ? null : item);
     const showRecallJapanese = recalling && state.phase === "prompt" && elements.japanesePromptDisplay.value === "show";
     elements.japanese.hidden = applying || missedEmpty ? false : !loaded || (listening ? !state.revealJapanese : recalling ? !showRecallJapanese : true);
     elements.english.hidden = applying || !loaded || (!state.revealEnglish && (listening || recalling));
@@ -631,6 +664,7 @@
     elements.cue.hidden = applying;
     elements.cue.textContent = missedEmpty ? "設定の出題範囲を「すべて」に戻すと練習できます。" : !loaded ? "教材を選択してください。" : recalling ? "日本語を聞いて、英語を話し、正解音声を聞いて自己評価" : "再生して、聞こえた通りに続けて話してください。";
     elements.repeat.closest("label").hidden = !listening;
+    elements.learningRangeSetting.hidden = applying;
     elements.repeatPauseSetting.hidden = !listening;
     elements.englishDisplaySetting.hidden = !listening;
     elements.japanesePromptSetting.hidden = listening;
@@ -684,13 +718,15 @@
     }
   }
 
-  function moveNext(currentRemoved = false) {
+  function moveItem(offset, currentRemoved = false) {
     if (!state.items.length) return;
     const previousIndex = state.index;
     stopSession();
     state.items = scopedItems();
     if (state.items.length) {
-      state.index = currentRemoved ? previousIndex % state.items.length : (previousIndex + 1) % state.items.length;
+      state.index = currentRemoved
+        ? previousIndex % state.items.length
+        : (previousIndex + offset + state.items.length) % state.items.length;
     } else {
       state.index = 0;
     }
@@ -705,6 +741,14 @@
     updateCourseStatus();
     render();
     prewarmNearbyAudio();
+  }
+
+  function moveNext(currentRemoved = false) {
+    moveItem(1, currentRemoved);
+  }
+
+  function movePrevious() {
+    moveItem(-1);
   }
 
   async function scheduleAutoAdvance(token) {
@@ -916,12 +960,26 @@
     }
   });
   let swipeStart = null;
-  elements.card.addEventListener("pointerdown", (event) => { swipeStart = event.clientX; });
+  elements.card.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button, input, select, a, summary")) {
+      swipeStart = null;
+      return;
+    }
+    swipeStart = { x: event.clientX, y: event.clientY };
+  });
   elements.card.addEventListener("pointerup", (event) => {
-    if (!["listen", "recall"].includes(state.mode) || state.phase !== "rating" || swipeStart === null) return;
-    const delta = event.clientX - swipeStart;
-    if (Math.abs(delta) > 84) rateAnswer(delta > 0 ? "can" : "cannot");
+    const start = swipeStart;
     swipeStart = null;
+    if (!start || !currentItem() || !["listen", "recall"].includes(state.mode)) return;
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (Math.abs(deltaX) < 72 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) return;
+    if (state.phase === "rating") {
+      rateAnswer(deltaX > 0 ? "can" : "cannot");
+    } else if (state.phase === "idle" && !state.playing) {
+      if (deltaX < 0) moveNext();
+      else movePrevious();
+    }
   });
   elements.card.addEventListener("pointercancel", () => { swipeStart = null; });
 
